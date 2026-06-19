@@ -136,7 +136,7 @@ func createAudioMix(for audioAsset: AVAsset, initialLevel vocalLevel: Float32) a
     }
 
     // Now, apply it to the mix.
-    mixInputParameters.audioTapProcessor = audioTap.takeRetainedValue()
+    mixInputParameters.audioTapProcessor = audioTap // 🔴 已修改：直接赋值
     audioMix.inputParameters = [mixInputParameters]
 
     // This AVPlayerItem utilizes our custom mix, and thus is suitable for playback.
