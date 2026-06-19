@@ -129,7 +129,7 @@ func createAudioMix(for audioAsset: AVAsset, initialLevel vocalLevel: Float32) a
         unprepare: TapLifecycle.tapUnprepareCallback,
         process: TapLifecycle.tapProcessCallback
     )
-    var audioTap: Unmanaged<MTAudioProcessingTap>?
+    var audioTap: MTAudioProcessingTap?
     try MTAudioProcessingTapCreate(kCFAllocatorDefault, &tapCallbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &audioTap).audioSuccess()
     guard let audioTap else {
         throw PlaybackError.audioUnitNotFound
