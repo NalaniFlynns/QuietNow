@@ -14,60 +14,43 @@ enum PlaybackDefaults {
     public static let initialVocalLevel: Float32 = 85.0
 }
 
+// 1. 添加 @MainActor，保证所有的 UI 和 AVPlayerItem 状态更新都在主线程安全执行
+@MainActor
 class PlayingTrack: ObservableObject {
-    public var title = "Unknown title"
-    public var artist = "-"
-    public var album = "-"
-    public var artwork = Image(systemName: "music.quarternote.3")
-    public var playerItem: AVPlayerItem?
+    @Published public var title = "Unknown title"
+    @Published public var artist = "-"
+    @Published public var album = "-"
+    @Published public var artwork = Image(systemName: "music.quarternote.3")
+    @Published public var playerItem: AVPlayerItem?
     private var audioMix: AVAudioMix?
 
-    /// Fully loads the given asset, creating the audio mix and siphoning metadata.
-    ///
-    /// Ideally, loading would also be performed in initialization or similar.
-    /// Unfortunately, it appears to be difficult to leverage async with a SwiftUI FileDocument.
-    /// - Parameter asset: The AVAsset to create an audio mix for.
     func load(asset: AVAsset) async throws {
-        // Applying this audio mix allows us to leverage the audio unit throughout playback.
         audioMix = try await createAudioMix(for: asset, initialLevel: PlaybackDefaults.initialVocalLevel)
         playerItem = AVPlayerItem(asset: asset)
         playerItem!.audioMix = audioMix
 
-        // Attempt to fill in metadata if it is available.
         let assetMetadata = try await asset.load(.commonMetadata)
         for metadata in assetMetadata {
-            guard let keyName = metadata.commonKey else {
-                continue
-            }
-
-            // We may not have a value in a form we expect - ensure we do.
-            guard let identifierValue = try await metadata.load(.value) else {
-                continue
-            }
+            guard let keyName = metadata.commonKey else { continue }
+            guard let identifierValue = try await metadata.load(.value) else { continue }
 
             switch keyName {
-            case .commonKeyTitle:
+            case .commonKeyTitle: 
                 title = identifierValue as! String
-            case .commonKeyAlbumName:
+            case .commonKeyAlbumName: 
                 album = identifierValue as! String
-            case .commonKeyArtist:
+            case .commonKeyArtist: 
                 artist = identifierValue as! String
-            case .commonKeyArtwork:
+            case .commonKeyArtwork: 
                 artwork = agnosticImage(data: identifierValue as! Data)
-            default:
+            default: 
                 break
             }
         }
     }
 
-    /// Adjusts the vocal attenuation level for the currently playing item.
-    /// - Parameter attenuationLevel: The desired level.
-    /// 0.0 represents off. 100.0 is the intended maximum.
     func adjust(attenuationLevel: Float32) {
-        guard let audioMix else {
-            return
-        }
-
+        guard let audioMix else { return }
         audioMix.adjust(attenuationLevel: attenuationLevel)
         print("Attenuation level is now \(attenuationLevel)")
     }
@@ -77,13 +60,9 @@ class PlayingTrack: ObservableObject {
             throw PlaybackError.songNotFound
         }
 
-        // We will write to a temporary location in order to leverage SwiftUI's file wrapper.
         let temporaryLocation = URL.temporaryDirectory.appending(component: "\(UUID().uuidString).m4a")
-
-        // Set attenuation level for our export audio mix to the current level.
         let exportAudioMix = try await createAudioMix(for: asset, initialLevel: attenuationLevel)
 
-        // Begin export!
         guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
             throw PlaybackError.exportFailed
         }
@@ -91,34 +70,35 @@ class PlayingTrack: ObservableObject {
         exportSession.outputURL = temporaryLocation
         exportSession.outputFileType = .m4a
 
-        let exportTimer = Timer(timeInterval: 0.5, repeats: true) { currentTimer in
-            switch exportSession.status {
-            case .exporting:
-                currentProgress.wrappedValue = exportSession.progress
-            case .failed, .cancelled:
-                print("Error occurred whilst exporting: \(exportSession.error?.localizedDescription ?? "Empty error")")
-                currentProgress.wrappedValue = 0.0
-                currentTimer.invalidate()
-            case .completed:
-                print("Export complete.")
-                currentProgress.wrappedValue = 0.0
-                currentTimer.invalidate()
-            default:
-                print("Export session in state \(exportSession.status)")
-            }
+        // 2. 启动异步导出任务
+        Task {
+            await exportSession.export()
         }
-        RunLoop.main.add(exportTimer, forMode: .common)
-        await exportSession.export()
+
+        // 3. 废弃 Timer，使用 Swift 6 推荐的 async 循环，彻底解决 Sendable 报错
+        while exportSession.status == .waiting || exportSession.status == .exporting {
+            currentProgress.wrappedValue = exportSession.progress
+            // 暂停 0.5 秒后再刷新进度
+            try? await Task.sleep(nanoseconds: 500_000_000) 
+        }
+
+        switch exportSession.status {
+        case .failed, .cancelled:
+            print("Error occurred whilst exporting: \(exportSession.error?.localizedDescription ?? "Empty error")")
+            currentProgress.wrappedValue = 0.0
+        case .completed:
+            print("Export complete.")
+            currentProgress.wrappedValue = 0.0
+        default:
+            print("Export session in state \(exportSession.status)")
+            currentProgress.wrappedValue = 0.0
+        }
 
         return temporaryLocation
     }
 }
 
-/// Ease-of-use extension for adjusting attenuation levels.
 extension AVAudioMix {
-    /// Adjusts the vocal attenuation level for the current audio mix.
-    /// - Parameter attenuationLevel: The desired level.
-    /// 0.0 represents off. Upper bounds are 1000.0, although any value beyond 100.0 produces rather unique results.
     func adjust(attenuationLevel: Float32) {
         let currentTap = inputParameters.first!.audioTapProcessor!
         let metadata = unsafeBitCast(MTAudioProcessingTapGetStorage(currentTap), to: TapMetadata.self)
