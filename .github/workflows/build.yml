@@ -6,11 +6,9 @@ on:
   workflow_dispatch:
 
 env:
-  APP_NAME: "QuietNow"                     # 1. 生成的 IPA 名字 (不要加 .ipa 后缀)
-  BUILD_ARGS: "-project YourProject.xcodeproj" # 2. 构建参数。如果是 Workspace 请改为 "-workspace YourApp.xcworkspace -scheme YourScheme"
-  XCODE_VERSION_PREFIX: "26"                  # 3. 期望的 Xcode 主版本号 (例如 15, 16, 26)
-  IOS_TARGET: "26.0"                          # 4. iOS 部署目标 (Deployment Target)
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true    # 5. 消除 Node 警告 (保持原样即可)
+  XCODE_VERSION_PREFIX: "26"                  # 期望的 Xcode 主版本号
+  IOS_TARGET: "26.0"                          # iOS 部署目标
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true    # 消除 Node 警告
 
 jobs:
   build-ios:
@@ -21,14 +19,38 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Auto-Detect Project Name and Type
+        id: detect_project
+        run: |
+          # 1. 优先查找是否存在 CocoaPods 的 .xcworkspace
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          if [ -n "$WORKSPACE" ]; then
+            PROJECT_NAME=$(basename "$WORKSPACE" .xcworkspace)
+            BUILD_ARGS="-workspace $WORKSPACE -scheme $PROJECT_NAME"
+            echo "Detected Workspace: $WORKSPACE"
+          else
+            # 2. 如果没有 workspace，则查找普通的 .xcodeproj
+            PROJECT=$(find . -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+            if [ -n "$PROJECT" ]; then
+              PROJECT_NAME=$(basename "$PROJECT" .xcodeproj)
+              BUILD_ARGS="-project $PROJECT"
+              echo "Detected Project: $PROJECT"
+            else
+              echo "Error: No .xcodeproj or .xcworkspace found in the root directory!"
+              exit 1
+            fi
+          fi
+          
+          # 3. 将动态获取的名字和构建参数写入环境变量，供后续步骤使用
+          echo "APP_NAME=$PROJECT_NAME" >> $GITHUB_ENV
+          echo "BUILD_ARGS=$BUILD_ARGS" >> $GITHUB_ENV
+          echo "✅ Successfully set APP_NAME to $PROJECT_NAME"
+
       - name: Select Xcode Version
         run: |
-          # 动态查找匹配 XCODE_VERSION_PREFIX 的最新 Xcode 版本
           XCODE_PATH=$(ls -d /Applications/Xcode_${{ env.XCODE_VERSION_PREFIX }}*.app 2>/dev/null | tail -n 1)
           if [ -z "$XCODE_PATH" ]; then
             echo "Error: Could not find any Xcode ${{ env.XCODE_VERSION_PREFIX }} version."
-            echo "Available Xcode versions in /Applications:"
-            ls -d /Applications/Xcode*.app
             exit 1
           fi
           echo "Selected Xcode path: $XCODE_PATH"
@@ -37,14 +59,14 @@ jobs:
       - name: Extract App Version
         id: get_version
         run: |
-          # 动态获取项目版本号
+          # 使用自动匹配的 BUILD_ARGS 获取版本号
           VERSION=$(xcodebuild -showBuildSettings ${{ env.BUILD_ARGS }} -configuration Release | grep MARKETING_VERSION | head -n 1 | awk -F '= ' '{print $2}')
           if [ -z "$VERSION" ]; then VERSION="1.0.0"; fi
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Build Unsigned App
         run: |
-          # 使用统一的构建参数进行无签名编译
+          # 使用自动匹配的 BUILD_ARGS 进行编译
           xcodebuild build \
             ${{ env.BUILD_ARGS }} \
             -configuration Release \
