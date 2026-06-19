@@ -5,7 +5,6 @@
 	};
 	objectVersion = 56;
 	objects = {
-
 /* Begin PBXBuildFile section */
 		42398C7629CEBD8800897F96 /* VoiceIsolationUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42398C7529CEBD8800897F96 /* VoiceIsolationUnit.swift */; };
 		42398C7929CED1D300897F96 /* AudioUnitWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42398C7829CED1D300897F96 /* AudioUnitWrapper.swift */; };
@@ -356,6 +355,16 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = space.joscomputing.QuietNow;
+                INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_CFBundleDocumentTypes = (
+					{
+						CFBundleTypeName = Audio;
+						LSHandlerRank = Default;
+						LSItemContentTypes = (
+							"public.audio",
+						);
+					},
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -389,6 +398,16 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = space.joscomputing.QuietNow;
+                INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_CFBundleDocumentTypes = (
+					{
+						CFBundleTypeName = Audio;
+						LSHandlerRank = Default;
+						LSItemContentTypes = (
+							"public.audio",
+						);
+					},
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
