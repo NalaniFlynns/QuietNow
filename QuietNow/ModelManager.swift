@@ -128,72 +128,54 @@ func pathHasValidModel(_ modelPath: URL) -> Bool {
 /// Attempts to search for a registered model path.
 /// - Returns: A string with the model path, suitable for providing to the Audio Unit. If not possible, returns empty.
 func getModelPath() -> String {
-    // Under macOS, the user can configure their own model path.
-    // Under iOS, watchOS, tvOS, [...], we configure it on their behalf.
-    let modelPath = UserDefaults.standard.string(forKey: "modelPath")
-    if let modelPath {
-        let modelPathUrl = URL(filePath: modelPath)
-
-        // Ensure our saved model path still contains a valid model.
-        if pathHasValidModel(modelPathUrl) {
-            logger.debug("Using configured model path \(modelPath)")
-            return modelPathUrl.rawPath
+    let fileManager = FileManager.default
+    
+    // 1. 检查缓存
+    if let savedPath = UserDefaults.standard.string(forKey: ModelPathKey) {
+        let savedURL = URL(fileURLWithPath: savedPath)
+        if pathHasValidModel(savedURL) {
+            return savedPath
         }
-
-        // Otherwise, remove the stored default.
         UserDefaults.standard.removeObject(forKey: ModelPathKey)
     }
 
-    // Let's iterate through all possible framework locations.
     let possibleLocations = getFrameworkPaths()
-    logger.debug("Checking possible model locations: \(possibleLocations)")
-
-    // Attempt to find a default.
-    let fileManager = FileManager.default
+    
     for frameworkLocation in possibleLocations {
-        // First, let's ensure this framework's directory exists.
-        logger.debug("Checking for models in framework \(frameworkLocation)")
-        guard frameworkLocation.exists() else {
-            continue
-        }
-        logger.debug("Checking framework location \(frameworkLocation)...")
-
-        // In older iOS, watchOS, tvOS, [...] versions, the model is located directly within the framework.
+        guard frameworkLocation.exists() else { continue }
+        
+        // 2. 根目录直接匹配
         if pathHasValidModel(frameworkLocation) {
-            UserDefaults.standard.setValue(frameworkLocation.rawPath, forKey: "modelPath")
+            UserDefaults.standard.setValue(frameworkLocation.rawPath, forKey: ModelPathKey)
             return frameworkLocation.rawPath
         }
-
-        do {
-            try fileManager.contentsOfDirectory(at: frameworkLocation, includingPropertiesForKeys: [.isDirectoryKey])
-        } catch let e {
-            logger.error("Encountered an error while searching framework directory: \(e)")
+        
+        // 3. 尝试使用 Bundle 绕过沙盒目录遍历限制
+        if let bundle = Bundle(url: frameworkLocation),
+           let plistPath = bundle.path(forResource: "aufx-nnet-appl", ofType: "plist") {
+            let modelDir = (plistPath as NSString).deletingLastPathComponent
+            UserDefaults.standard.setValue(modelDir, forKey: ModelPathKey)
+            return modelDir
         }
-
-        // In at least iOS 17.4 and later, the model resides within a subdirectory.
-        // For example, as of iOS 17.5, the model resides in the subdirectory "czutbtg4y9".
-        // We'll iterate to attempt to find a subdirectory with a valid model property list.
-        guard let frameworkContents = try? fileManager.contentsOfDirectory(at: frameworkLocation, includingPropertiesForKeys: [.isDirectoryKey]) else {
-            // Hmm... we should be able to recurse.
-            continue
-        }
-
-        for contentLocation in frameworkContents {
-            // Let's only iterate through directories within the framework.
-            guard contentLocation.isDirectory else {
-                continue
+        
+        // 4. 容错遍历（跳过无权限的系统文件夹，继续寻找子目录）
+        if let enumerator = fileManager.enumerator(
+            at: frameworkLocation,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles],
+            errorHandler: { (_, _) -> Bool in
+                return true // 忽略沙盒权限错误
             }
-
-            logger.debug("Checking framework subdirectory \(contentLocation)")
-
-            // Ensure this directory has a model.
-            if pathHasValidModel(contentLocation) {
-                UserDefaults.standard.setValue(contentLocation.rawPath, forKey: "modelPath")
-                return contentLocation.rawPath
+        ) {
+            for case let fileURL as URL in enumerator {
+                if fileURL.lastPathComponent == "aufx-nnet-appl.plist" {
+                    let modelDir = fileURL.deletingLastPathComponent().path
+                    UserDefaults.standard.setValue(modelDir, forKey: ModelPathKey)
+                    return modelDir
+                }
             }
         }
     }
 
-    // We were unable to find a model path.
-    return ""
+    return "" // 找不到交给底层系统的 fallback 处理
 }
