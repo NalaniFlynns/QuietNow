@@ -81,6 +81,7 @@ struct TrackDocumentView: View {
     @AppStorage(ModelPathKey) private var modelPath = getModelPath()
 
     var body: some View {
+        #if os(macOS)
         if modelPath.isEmpty {
             SettingsView()
         } else if trackLoaded {
@@ -102,5 +103,26 @@ struct TrackDocumentView: View {
                 }
                 .padding()
         }
+        #else
+        if trackLoaded {
+            PlayerView()
+                .environmentObject(currentTrack)
+        } else if errorText != "" {
+            Text(errorText)
+                .padding()
+        } else {
+            ProgressView("Loading track...")
+                .task {
+                    do {
+                        try await currentTrack.load(asset: file.audioAsset)
+                        trackLoaded = true
+                    } catch let e {
+                        print("Encountered exception while loading track: \(e)")
+                        errorText = "An error occurred while loading: \(e)"
+                    }
+                }
+                .padding()
+        }
+        #endif
     }
 }
