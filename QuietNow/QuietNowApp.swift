@@ -21,7 +21,6 @@ struct QuietNowApp: App {
     }
 }
 
-// 我们把 MainView 直接写在入口文件里，这样就不需要修改 Xcode 工程目录了
 struct MainView: View {
     @State private var isPickerPresented = false
     @StateObject private var currentTrack = PlayingTrack()
@@ -76,9 +75,10 @@ struct MainView: View {
                 }
             }
             .padding()
+            // 🚀 核心修复：把 allowedContentTypes 改成 [.item]，允许点击任何文件，彻底解决灰色点不动的问题
             .fileImporter(
                 isPresented: $isPickerPresented,
-                allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, UTType(filenameExtension: "flac") ?? .audio, UTType(filenameExtension: "m4a") ?? .audio],
+                allowedContentTypes: [.item], 
                 allowsMultipleSelection: false
             ) { result in
                 handleFileSelection(result: result)
@@ -90,8 +90,16 @@ struct MainView: View {
         switch result {
         case .success(let urls):
             guard let selectedURL = urls.first else { return }
+            
+            // 🚀 核心修复 2：我们自己来手动验证是不是音频文件
+            let validExtensions = ["mp3", "m4a", "wav", "flac", "aac", "alac", "ogg"]
+            guard validExtensions.contains(selectedURL.pathExtension.lowercased()) else {
+                errorText = "格式不支持！请选择有效的音频文件 (如 MP3, M4A, FLAC, WAV)。"
+                return
+            }
+            
             guard selectedURL.startAccessingSecurityScopedResource() else {
-                errorText = "没有权限读取该文件，请把文件移至本地文件夹后重试。"
+                errorText = "没有权限读取该文件，请把文件移至“我的 iPhone”本地文件夹后重试。"
                 return
             }
             
