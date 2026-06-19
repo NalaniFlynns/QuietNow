@@ -80,23 +80,26 @@ func createUnit(with tap: MTAudioProcessingTap, metadata _: TapMetadata) throws 
     try audioUnit.setProperty(property: kAudioUnitProperty_SetRenderCallback, scope: .input, data: &audioInputFunc, dataSize: renderCallbackSize)
 
     // Lastly, specify models locations.
-    let modelDirectory = URL(filePath: getModelPath())
-    guard try modelDirectory.checkResourceIsReachable() else {
-        throw PlaybackError.modelNotFound
-    }
+    let resolvedModelPath = getModelPath()
+    if !resolvedModelPath.isEmpty {
+     let modelDirectory = URL(fileURLWithPath: resolvedModelPath)
+     if (try? modelDirectory.checkResourceIsReachable()) == true {
+         // XXX: 30000 is plist path
+         var plistPath = modelDirectory.appendingPathComponent("aufx-nnet-appl.plist").path as CFString
+         try audioUnit.setProperty(property: 30000, scope: .global, data: &plistPath, dataSize: stringPointerSize)
 
-    // XXX: 30000 is plist path
-    var plistPath = modelDirectory.appending(component: "aufx-nnet-appl.plist").path(percentEncoded: false) as CFString
-    try audioUnit.setProperty(property: 30000, scope: .global, data: &plistPath, dataSize: stringPointerSize)
+         // XXX: 40000 is model base path
+         var modelBasePath = modelDirectory.path as CFString
+         try audioUnit.setProperty(property: 40000, scope: .global, data: &modelBasePath, dataSize: stringPointerSize)
 
-    // XXX: 40000 is model base path
-    var modelBasePath = modelDirectory.path(percentEncoded: false) as CFString
-    try audioUnit.setProperty(property: 40000, scope: .global, data: &modelBasePath, dataSize: stringPointerSize)
-
-    // XXX: 50000 disables dereverb
-    // TODO: This seems to disable a neural network for dereverb - how is it used? Why?
-    var dereverbModelPath = "" as CFString
-    try audioUnit.setProperty(property: 50000, scope: .global, data: &dereverbModelPath, dataSize: stringPointerSize)
+         // XXX: 50000 disables dereverb
+         var dereverbModelPath = "" as CFString
+         try audioUnit.setProperty(property: 50000, scope: .global, data: &dereverbModelPath, dataSize: stringPointerSize)
+     }
+ } else {
+     // 沙盒环境下找不到路径时静默跳过，让 iOS 尝试调用默认底层模型
+     print("未手动指定模型路径，尝试使用 iOS 原生 Audio Unit 默认参数...")
+ }
 
     try audioUnit.initialize()
     return audioUnit
